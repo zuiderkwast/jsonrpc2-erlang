@@ -112,9 +112,14 @@ dispatch({Method, Params, Id}, HandlerFun) ->
     try HandlerFun(Method, Params) of
         Response -> make_result_response(Response, Id)
     catch
-        error:undef  -> make_error_response(-32601, <<"Method not found.">>, Id);
-        error:badarg -> make_error_response(-32602, <<"Invalid params.">>, Id);
-        _:_          -> make_error_response(-32603, <<"Internal error.">>, Id)
+        error:undef ->
+            make_error_response(-32601, <<"Method not found.">>, Id);
+        error:badarg ->
+            make_error_response(-32602, <<"Invalid params.">>, Id);
+        error:function_clause ->
+            make_error_response(-32602, <<"Invalid params.">>, Id);
+        _:_ ->
+            make_error_response(-32603, <<"Internal error.">>, Id)
     end;
 dispatch(_InvalidReq, _HandlerFun) ->
     make_error_response(-32600, <<"Invalid Request.">>, null).

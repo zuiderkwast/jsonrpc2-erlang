@@ -68,18 +68,23 @@ use something like a pool of workers.
 Error Handling
 --------------
 
-* For JSON parsing errors, jsonrpc2:parseerror() can be called to create a "Parse error" (-32700) response.
-* Invalid JSON-RPC requests (though valid JSON) are reported as "Invalid Request" (-32600).
-* Any exceptions and errors occuring in the handler callback function are caught and reported in the
-  following way:
+* For JSON parsing errors, which is not handled by this module,
+  jsonrpc2:parseerror() can be called to create a "Parse error" (-32700)
+  response.
+* Invalid JSON-RPC requests (though valid JSON) are handled and reported as
+  "Invalid Request" (-32600).
+* Any exceptions and errors occuring in the handler callback function are
+  caught and reported in the following way:
   * error:undef  is reported as "Method not found" (-32601),
-  * error:badarg is reported as "Invalid params"
-  * any other error or exception is reported as "    Internal error" (-32603).
+  * error:badarg and error:function_clause are reported as "Invalid params"
+    (-32602),
+  * any other error or exception is reported as "Internal error" (-32603).
 
-The errors undef and badarg normally occur in Erlang when an undefined function is called and when
-a function is not defined for a specific set of parametes, respectively. You can either let them
-occur naturally in your handler or trigger them manually using erlang:error(undef) and
-erlang:error(badarg) respectively.
+The error undef normally occur in Erlang when an undefined function is called.
+A function_clause or badarg occurs when a function is not defined for a
+specific set of parametes or otherwise doesn't accept the parameters,
+respectively. You can either let them occur naturally in your handler or
+trigger them manually using erlang:error/1.
 
 JSON Data Format
 ----------------
