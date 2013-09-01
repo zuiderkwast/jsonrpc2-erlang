@@ -67,11 +67,25 @@ make_result_response(Result, Id) ->
               {<<"result">>, Result}, 
               {<<"id">>, Id}]}}.
 
+-spec make_error_response(integer(), binary(), json(), id()) -> response().
+make_error_response(_Code, _Msg, _Data, undefined) ->
+    noreply;
+make_error_response(Code, Msg, Data, Id) ->
+    {reply, make_error(Code, Msg, Data, Id)}.
+
 -spec make_error_response(integer(), binary(), id()) -> response().
 make_error_response(_Code, _Msg, undefined) ->
     noreply;
 make_error_response(Code, Msg, Id) ->
     {reply, make_error(Code, Msg, Id)}.
+
+-spec make_error(integer(), binary(), json(), id()) -> json().
+make_error(Code, Msg, Data, Id) ->
+    {[{<<"jsonrpc">>, <<"2.0">>},
+      {<<"error">>, {[{<<"code">>, Code},
+                      {<<"message">>, Msg},
+                      {<<"data">>, Data}]}},
+      {<<"id">>, Id}]}.
 
 -spec make_error(integer(), binary(), id()) -> json().
 make_error(Code, Msg, Id) ->
@@ -112,17 +126,28 @@ dispatch({Method, Params, Id}, HandlerFun) ->
     try HandlerFun(Method, Params) of
         Response -> make_result_response(Response, Id)
     catch
-        error:undef ->
-            make_error_response(-32601, <<"Method not found.">>, Id);
-        error:badarg ->
-            make_error_response(-32602, <<"Invalid params.">>, Id);
-        error:function_clause ->
-            make_error_response(-32602, <<"Invalid params.">>, Id);
-        _:_ ->
-            make_error_response(-32603, <<"Internal error.">>, Id)
+        throw:E when E == method_not_found; E == invalid_params;
+                     E == internal_error; E == server_error ->
+            {Code, Message} = error_code_and_message(E),
+            make_error_response(Code, Message, Id);
+        throw:{E, Data} when E == method_not_found; E == invalid_params;
+                             E == internal_error; E == server_error ->
+            {Code, Message} = error_code_and_message(E),
+            make_error_response(Code, Message, Data, Id);
+        throw:{server_error, Data, Code} when Code =< -32000, Code >= -32099 ->
+            %% "Reserved for implementation-defined server-errors."
+            make_error_response(Code, <<"Server error.">>, Data, Id)
     end;
 dispatch(_InvalidReq, _HandlerFun) ->
-    make_error_response(-32600, <<"Invalid Request.">>, null).
+    {Code, Message} = error_code_and_message(invalid_request),
+    make_error_response(Code, Message, null).
+
+%% @doc Returns JSON-RPC error code and error message
+error_code_and_message(invalid_request)  -> {-32600, <<"Invalid Request.">>};
+error_code_and_message(method_not_found) -> {-32601, <<"Method not found.">>};
+error_code_and_message(invalid_params)   -> {-32602, <<"Invalid params.">>};
+error_code_and_message(internal_error)   -> {-32603, <<"Internal error.">>};
+error_code_and_message(server_error)     -> {-32000, <<"Server error.">>}.
 
 %% @doc Transforms a list of responses into a single response.
 -spec merge_responses([response()]) -> response().
@@ -143,10 +168,9 @@ test_handler(<<"subtract">>, [23,42]) -> -19;
 test_handler(<<"subtract">>, {[{<<"subtrahend">>,23},{<<"minuend">>,42}]}) -> 19;
 test_handler(<<"subtract">>, {[{<<"minuend">>,42},{<<"subtrahend">>,23}]}) -> 19;
 test_handler(<<"update">>, [1,2,3,4,5]) -> ok;
-test_handler(<<"foobar">>, _) -> erlang:error(undef);
 test_handler(<<"sum">>, [1,2,4]) -> 7;
-test_handler(<<"foo.get">>, _) -> erlang:error(undef);
-test_handler(<<"get_data">>, []) -> [<<"hello">>,5].
+test_handler(<<"get_data">>, []) -> [<<"hello">>,5];
+test_handler(_, _) -> throw(method_not_found).
 
 %% rpc call with positional parameters
   call_test() ->

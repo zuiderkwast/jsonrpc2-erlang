@@ -1,16 +1,13 @@
 JSON-RPC 2.0 for Erlang
 =======================
 
-This is a JSON-RPC 2.0 request handler. It does not handle JSON decoding and
-encoding. This means the JSON decoding and encoding must be handled by the
-caller. It also means that you may use the JSON library of your choice.
+This is a JSON-RPC 2.0 request handler.
 
 Features
 --------
 
 * allows any JSON encoder and decoder, as long as it supports the eep0018 style
   terms format,
-* no dependencies, except OTP,
 * dispatches parsed requests to a simple callback function
 * supports optional callback map function for batch requests, e.g. to support
   concurrent processing of the requests in a batch,
@@ -21,9 +18,13 @@ Features
 Usage
 -----
 
-The processing is done using a callback function. The method and params are passed to the callback
-function and the return value are used as results. Any exception from the callback function is
-caught and results in an appropriate error message.
+`jsonrpc2:handle/2,3` delegates the actual remote procedure call to a callback
+"handler" function by passing the method name and the params. The return value
+of the handler function, which should be in a form that can be encoded as JSON,
+is used as the result and packed into a JSON-RPC response.
+
+To produce an error response, the handler function is allowed to throw certain
+exceptions. See *Error handling* below.
 
 Example
 -------
@@ -68,23 +69,37 @@ use something like a pool of workers.
 Error Handling
 --------------
 
-* For JSON parsing errors, which is not handled by this module,
-  jsonrpc2:parseerror() can be called to create a "Parse error" (-32700)
-  response.
-* Invalid JSON-RPC requests (though valid JSON) are handled and reported as
-  "Invalid Request" (-32600).
-* Any exceptions and errors occuring in the handler callback function are
-  caught and reported in the following way:
-  * error:undef  is reported as "Method not found" (-32601),
-  * error:badarg and error:function_clause are reported as "Invalid params"
-    (-32602),
-  * any other error or exception is reported as "Internal error" (-32603).
+Since JSON parsing is not handled by this module, `jsonrpc2:parseerror()` can
+be called to create a "Parse error" (-32700) response.
 
-The error undef normally occur in Erlang when an undefined function is called.
-A function_clause or badarg occurs when a function is not defined for a
-specific set of parametes or otherwise doesn't accept the parameters,
-respectively. You can either let them occur naturally in your handler or
-trigger them manually using erlang:error/1.
+Invalid JSON-RPC requests (though valid JSON) are handled and reported as
+Invalid Request" (-32600).
+
+Other error responses are created by throwing in the handler function.  These
+are caught and transformed into JSON-RPC error responses.
+
+```erlang
+my_handler(<<"Foo">>, [X, Y]) when is_integer(X), is_integer(Y) ->
+    {[{<<"Foo says">>}, X + Y + 42}]};
+my_handler(<<"Foo">>, _SomeOtherParams) ->
+    throw(invalid_params);
+my_handler(_SomeOtherMethod, _) ->
+    throw(method_not_found).
+```
+
+The exceptions that can be used to produce JSON-RPC error responses are:
+
+  * `throw:method_not_found` is reported as "Method not found" (-32601)
+  * `throw:invalid_params` is reported as "Invalid params" (-32602),
+  * `throw:internal_error` is reported as "Internal error" (-32603),
+  * `throw:server_error` is reported as "Server error" (-32000),
+
+If you also want to include `data` in the JSON-RPC error response, throw a pair
+with the error type and the data, such as `{internal_error, Data}`.
+
+For *server errors*, it is also possible to set a custom error code by throwing
+a triple: `{server_error, Data, Code}`. The Code must be in the range from
+-32000 to -32099.
 
 JSON Data Format
 ----------------
