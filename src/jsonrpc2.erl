@@ -11,19 +11,58 @@
 %% This work has been released into the public domain by its author.
 -module(jsonrpc2).
 
--export([handle/2, handle/3, parseerror/0]).
+-export([handle/2, handle/3, handle/4, handle/5, parseerror/0]).
 
 -type json() :: true | false | null | binary() | [json()] | {[{binary(), json()}]}.
 -type method() :: binary().
 -type params() :: [json()] | {[{binary(), json()}]}.
 -type id() :: number() | null | undefined.
--type request() :: {method(), params(), id()} | invalid.
+-type errortype() :: parse_error | method_not_found | invalid_params |
+                     internal_error | server_error.
+-type request() :: {method(), params(), id()} | invalid_request.
 -type response() :: {reply, json()} | noreply.
 
 -type handlerfun() :: fun((method(), params()) -> json()).
 -type mapfun() :: fun((fun((A) -> B), [A]) -> [B]). % should be the same as lists:map/2
 
--export_type([json/0, response/0, handlerfun/0, mapfun/0]).
+-export_type([json/0, method/0, params/0, handlerfun/0, mapfun/0, response/0]).
+
+%% @doc Handles a raw JSON-RPC request, using the supplied JSON decode and
+%% encode functions.
+-spec handle(Req::term(), handlerfun(), JsonDecode::fun(), JsonEncode::fun()) ->
+    noreply | {reply, term()}.
+handle(Req, HandlerFun, JsonDecode, JsonEncode)
+        when is_function(HandlerFun, 2),
+             is_function(JsonDecode, 1),
+             is_function(JsonEncode, 1) ->
+    handle(Req, HandlerFun, fun lists:map/2, JsonDecode, JsonEncode).
+
+%% @doc Handles a raw JSON-RPC request, using the supplied JSON decode and
+%% encode functions and a custom map function.
+-spec handle(Req::term(), handlerfun(), mapfun(), JsonDecode::fun(),
+             JsonEncode::fun()) -> noreply | {reply, term()}.
+handle(Req, HandlerFun, MapFun, JsonDecode, JsonEncode)
+        when is_function(HandlerFun, 2),
+             is_function(MapFun, 2),
+             is_function(JsonDecode, 1),
+             is_function(JsonEncode, 1) ->
+    Response = try JsonDecode(Req) of
+        DecodedJson -> handle(DecodedJson, HandlerFun, MapFun)
+    catch
+        _:_ -> {reply, parseerror()}
+    end,
+    case Response of
+        noreply -> noreply;
+        {reply, Reply} ->
+            try JsonEncode(Reply) of
+                EncodedReply -> {reply, EncodedReply}
+            catch _:_ ->
+                error_logger:error_msg("Failed encoding reply as JSON: ~p",
+                                       [Reply]),
+                {reply, Error} = make_error_response(internal_error, null),
+                {reply, JsonEncode(Error)}
+            end
+    end.
 
 %% @doc Handles the requests using the handler function. Batch requests are
 %% handled sequentially. Since this module doesn't handle the JSON encoding and
@@ -67,17 +106,26 @@ make_result_response(Result, Id) ->
               {<<"result">>, Result}, 
               {<<"id">>, Id}]}}.
 
--spec make_error_response(integer(), binary(), json(), id()) -> response().
-make_error_response(_Code, _Msg, _Data, undefined) ->
+-spec make_error_response(errortype(), id()) -> response().
+make_error_response(_ErrorType, undefined) ->
     noreply;
-make_error_response(Code, Msg, Data, Id) ->
+make_error_response(ErrorType, Id) ->
+    {Code, Msg} = error_code_and_message(ErrorType),
+    {reply, make_error(Code, Msg, Id)}.
+
+-spec make_error_response(errortype(), json(), id()) -> response().
+make_error_response(_ErrorType, _Data, undefined) ->
+    noreply;
+make_error_response(ErrorType, Data, Id) ->
+    {Code, Msg} = error_code_and_message(ErrorType),
     {reply, make_error(Code, Msg, Data, Id)}.
 
--spec make_error_response(integer(), binary(), id()) -> response().
-make_error_response(_Code, _Msg, undefined) ->
+-spec make_error_response(errortype(), json(), integer(), id()) -> response().
+make_error_response(_ErrorType, _Data, _Code, undefined) ->
     noreply;
-make_error_response(Code, Msg, Id) ->
-    {reply, make_error(Code, Msg, Id)}.
+make_error_response(ErrorType, Data, Code, Id) ->
+    {_, Msg} = error_code_and_message(ErrorType),
+    {reply, make_error(Code, Msg, Data, Id)}.
 
 -spec make_error(integer(), binary(), json(), id()) -> json().
 make_error(Code, Msg, Data, Id) ->
@@ -95,9 +143,9 @@ make_error(Code, Msg, Id) ->
       {<<"id">>, Id}]}.
 
 %% @doc Parses the RPC part of an already JSON decoded request. Returns a tuple
-%% {Method, Params, Id} for a single request, 'invalid' for an invalid request
-%% and a list of these for a batch request. An Id value of 'undefined' is used
-%% when the id is not present in the request.
+%% {Method, Params, Id} for a single request, 'invalid_request' for an invalid
+%% request and a list of these for a batch request. An Id value of 'undefined'
+%% is used when the id is not present in the request.
 -spec parse(json()) -> request() | [request()].
 parse(Reqs) when is_list(Reqs) ->
     [parse(Req) || Req <- Reqs];
@@ -115,10 +163,10 @@ parse({Req}) ->
         true ->
             {Method, Params, Id};
         false ->
-            invalid
+            invalid_request
     end;
 parse(_) ->
-    invalid.
+    invalid_request.
 
 %% @doc Calls the handler function, catches errors and composes a json-rpc response.
 -spec dispatch(request(), handlerfun()) -> response().
@@ -128,19 +176,21 @@ dispatch({Method, Params, Id}, HandlerFun) ->
     catch
         throw:E when E == method_not_found; E == invalid_params;
                      E == internal_error; E == server_error ->
-            {Code, Message} = error_code_and_message(E),
-            make_error_response(Code, Message, Id);
+            make_error_response(E, Id);
         throw:{E, Data} when E == method_not_found; E == invalid_params;
                              E == internal_error; E == server_error ->
-            {Code, Message} = error_code_and_message(E),
-            make_error_response(Code, Message, Data, Id);
+            make_error_response(E, Data, Id);
         throw:{server_error, Data, Code} when Code =< -32000, Code >= -32099 ->
             %% "Reserved for implementation-defined server-errors."
-            make_error_response(Code, <<"Server error.">>, Data, Id)
+            make_error_response(Code, <<"Server error.">>, Data, Id);
+        Class:Error ->
+            error_logger:error_msg(
+            	"Error in JSON-RPC handler for method ~s with params ~p: ~p:~p",
+                [Method, Params, Class, Error]),
+            make_error_response(internal_error, Id)
     end;
-dispatch(_InvalidReq, _HandlerFun) ->
-    {Code, Message} = error_code_and_message(invalid_request),
-    make_error_response(Code, Message, null).
+dispatch(_, _HandlerFun) ->
+    make_error_response(invalid_request, null).
 
 %% @doc Returns JSON-RPC error code and error message
 error_code_and_message(invalid_request)  -> {-32600, <<"Invalid Request.">>};
@@ -331,5 +381,46 @@ batch_notif_test() ->
              {<<"method">>,<<"notify_hello">>},
              {<<"params">>,[7]}]}],
     noreply = handle(Req, fun test_handler/2).
+
+-define(ENCODED_REQUEST, <<"{\"jsonrpc\":\"2.0\","
+                           "\"method\":\"subtract\","
+                           "\"params\":[42,23],"
+                           "\"id\":1}">>).
+-define(DECODED_REQUEST, {[{<<"jsonrpc">>,<<"2.0">>},
+                           {<<"method">>,<<"subtract">>},
+                           {<<"params">>,[42,23]},
+                           {<<"id">>,1}]}).
+-define(ENCODED_RESPONSE, <<"{\"jsonrpc\":\"2.0\","
+                            "\"result\":19,"
+                            "\"id\":1}">>).
+-define(DECODED_RESPONSE, {[{<<"jsonrpc">>,<<"2.0">>},
+                            {<<"result">>,19},
+                            {<<"id">>,1}]}).
+-define(ENCODED_PARSE_ERROR, <<"{\"jsonrpc\":\"2.0\","
+                               "\"error\":{\"code\":-32700,"
+                               "\"message\":\"Parse error.\"},"
+                               "\"id\":null}">>).
+-define(DECODED_PARSE_ERROR, {[{<<"jsonrpc">>,<<"2.0">>},
+                               {<<"error">>,
+                                {[{<<"code">>,-32700},
+                                  {<<"message">>,<<"Parse error.">>}]}},
+                               {<<"id">>,null}]}).
+
+%% define json encode and decode only for the cases we need in the tests
+json_decode(?ENCODED_REQUEST)     -> ?DECODED_REQUEST.
+json_encode(?DECODED_RESPONSE)    -> ?ENCODED_RESPONSE;
+json_encode(?DECODED_PARSE_ERROR) -> ?ENCODED_PARSE_ERROR.
+
+%% test handle/4 with encode and decode callbacks
+json_callbacks_test() ->
+    Req = ?ENCODED_REQUEST,
+    Reply = ?ENCODED_RESPONSE,
+    {reply, Reply} = handle(Req, fun test_handler/2, fun json_decode/1,
+                            fun json_encode/1).
+
+parse_error_test() ->
+    Error = ?ENCODED_PARSE_ERROR,
+    {reply, Error} = handle(<<"dummy">>, fun test_handler/2, fun json_decode/1,
+                            fun json_encode/1).
 
 -endif.
