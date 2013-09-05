@@ -62,25 +62,38 @@ function must return a term that can be encoded to JSON using the
 representation explained on the page https://github.com/davisp/jiffy#data-format,
 as required by jiffy and other compatible JSON parses.
 
-<dl>
-  <dt><code>handle(json(), handlerfun()) -> {reply, json()} | noreply</code></dt>
-  <dd>Handles decoded JSON and returns a reply as decoded JSON or noreply. Use
-      this if you want to handle JSON encoding separately.</dd>
-  <dt><code>handle(json(), handlerfun(), mapfun()) -> {reply, json() | noreply</code></dt>
-  <dd>Like <code>handle/2</code>, handles decoded JSON, but takes an extra
-      "map" function callback to be used instead of <code>lists:map/2</code>
-      for batch processing. The map function should be a function that behaves
-      similarly to <code>lists:map/2</code>, such as the <code>plists:map/2</code>
-      from the plists library for concurrent batch handling.</dd>
-  <dt><code>handle(Req::term(), handlerfun(), JsonDecode::fun(), JsonEncode::fun()) ->
-      {reply, term()} | noreply</code></dt>
-  <dd>Handles JSON as binary or string. Uses the supplied functions
-      JsonDecode to parse the JSON request and JsonEncode to encode the reply as JSON.</dd>
-  <dt><code>handle(Req::term(), handlerfun(), mapfun(), JsonDecode::fun(),
-      JsonEncode::fun()) -> {reply, term()} | noreply</code></dt>
-  <dd>Like <code>handle/4</code>, but also takes a map function for batch
-      processing. See <code>handle/3</code> above.</dd>
-</dl>
+```Erlang
+handle(json(), handlerfun()) -> {reply, json()} | noreply
+```
+
+Handles decoded JSON and returns a reply as decoded JSON or noreply. Use
+this if you want to handle JSON encoding separately.
+
+```Erlang
+handle(json(), handlerfun(), mapfun()) -> {reply, json()} | noreply
+```
+
+Like `handle/2`, handles decoded JSON, but takes an extra
+"map" function callback to be used instead of `lists:map/2`
+for batch processing. The map function should be a function that behaves
+similarly to `lists:map/2`, such as the `plists:map/2`
+from the plists library for concurrent batch handling.
+
+```Erlang
+handle(Req::term(), handlerfun(), JsonDecode::fun(), JsonEncode::fun()) ->
+    {reply, term()} | noreply
+```
+
+Handles JSON as binary or string. Uses the supplied functions
+JsonDecode to parse the JSON request and JsonEncode to encode the reply as JSON.
+
+```Erlang
+handle(Req::term(), handlerfun(), mapfun(), JsonDecode::fun(),
+    JsonEncode::fun()) -> {reply, term()} | noreply
+```
+
+Like `handle/4`, but also takes a map function for batch
+processing. See `handle/3` above.
 
 Error Handling
 --------------
