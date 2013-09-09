@@ -16,16 +16,17 @@
 -type json() :: true | false | null | binary() | [json()] | {[{binary(), json()}]}.
 -type method() :: binary().
 -type params() :: [json()] | {[{binary(), json()}]}.
--type id() :: number() | null | undefined.
+-type id() :: number() | null.
 -type errortype() :: parse_error | method_not_found | invalid_params |
                      internal_error | server_error.
--type request() :: {method(), params(), id()} | invalid_request.
+-type request() :: {method(), params(), id() | undefined} | invalid_request.
 -type response() :: {reply, json()} | noreply.
 
 -type handlerfun() :: fun((method(), params()) -> json()).
 -type mapfun() :: fun((fun((A) -> B), [A]) -> [B]). % should be the same as lists:map/2
 
--export_type([json/0, method/0, params/0, handlerfun/0, mapfun/0, response/0]).
+-export_type([json/0, method/0, params/0, id/0, handlerfun/0, mapfun/0,
+              response/0, errortype/0]).
 
 %% @doc Handles a raw JSON-RPC request, using the supplied JSON decode and
 %% encode functions.
@@ -98,7 +99,7 @@ parseerror() ->
 
 %% helpers
 
--spec make_result_response(json(), id()) -> response().
+-spec make_result_response(json(), id() | undefined) -> response().
 make_result_response(_Result, undefined) ->
     noreply;
 make_result_response(Result, Id) ->
@@ -106,21 +107,21 @@ make_result_response(Result, Id) ->
               {<<"result">>, Result}, 
               {<<"id">>, Id}]}}.
 
--spec make_error_response(errortype(), id()) -> response().
+-spec make_error_response(errortype(), id() | undefined) -> response().
 make_error_response(_ErrorType, undefined) ->
     noreply;
 make_error_response(ErrorType, Id) ->
     {Code, Msg} = error_code_and_message(ErrorType),
     {reply, make_error(Code, Msg, Id)}.
 
--spec make_error_response(errortype(), json(), id()) -> response().
+-spec make_error_response(errortype(), json(), id() | undefined) -> response().
 make_error_response(_ErrorType, _Data, undefined) ->
     noreply;
 make_error_response(ErrorType, Data, Id) ->
     {Code, Msg} = error_code_and_message(ErrorType),
     {reply, make_error(Code, Msg, Data, Id)}.
 
--spec make_error_response(errortype(), json(), integer(), id()) -> response().
+-spec make_error_response(errortype(), json(), integer(), id() | undefined) -> response().
 make_error_response(_ErrorType, _Data, _Code, undefined) ->
     noreply;
 make_error_response(ErrorType, Data, Code, Id) ->
