@@ -1,14 +1,14 @@
 -module(jsonrpc2_client).
 
--export_type([response/0]).
--export([batch_call/5]).
+-export_type([request/0, response/0]).
+-export([create_request/1, parse_response/1, batch_call/5]).
 
 -type call_req() :: {jsonrpc2:method(), jsonrpc2:params(), jsonrpc2:id()}.
--type notification_req() :: {jsonrpc2:method(), jsonrpc2:params(), jsonrpc2:id()}.
+-type notification_req() :: {jsonrpc2:method(), jsonrpc2:params()}.
 -type batch_req() :: [call_req() | notification_req()].
 -type request() :: call_req() | notification_req() | batch_req().
 
--type response() :: {ok, jsonrpc2:json()} | {error, jsonrpc2:errortype()}.
+-type response() :: {ok, jsonrpc2:json()} | {error, jsonrpc2:error()}.
 
 -type transportfun() :: fun ((binary()) -> binary()).
 -type json_encode() :: fun ((jsonrpc2:json()) -> binary()).
@@ -30,8 +30,7 @@ create_request(Reqs) when is_list(Reqs) ->
 
 %% @doc Parses a structured response and returns a list of pairs, with id and the retuned value.
 %%      Throws invalid_jsonrpc_response.
--spec parse_response(jsonrpc2:json()) ->
-	[{jsonrpc2:id(), {ok | jsonrpc2:json()} | {error, jsonrpc2:errortype()}}].
+-spec parse_response(jsonrpc2:json()) -> [{jsonrpc2:id(), response()}].
 parse_response({_} = Response) ->
 	parse_single_response(Response);
 parse_response(BatchResponse) when is_list(BatchResponse) ->
@@ -55,7 +54,8 @@ batch_call(MethodsAndParams, TransportFun, JsonDecode, JsonEncode, FirstId) ->
 %% Internal
 %%----------
 
-%% @doc Helper for parse_response/1. Returns a single pair {Id, Reply}.
+%% @doc Helper for parse_response/1. Returns a single pair {Id, Response}.
+-spec parse_single_response(jsonrpc2:json()) -> {jsonrpc2:id(), response()}.
 parse_single_response({Response}) ->
 	<<"2.0">> == proplists:get_value(<<"jsonrpc">>, Response)
 		orelse throw(invalid_jsonrpc_response),
@@ -65,13 +65,19 @@ parse_single_response({Response}) ->
 	Result  = proplists:get_value(<<"result">>, Response, undefined),
 	Error   = proplists:get_value(<<"error">>, Response, undefined),
 	Reply = case {Result, Error} of
-		{undefined, undefined} -> throw(invalid_jsonrpc_response);
-		{_, undefined} -> {ok, Result};
-		{undefined, _} ->
+		{undefined, undefined} ->
+			{error, {server_error, <<"Invalid JSON-RPC 2.0 response">>}};
+		{_, undefined} ->
+			{ok, Result};
+		{undefined, {ErrorProplist}} ->
 			%% extract the error code and convert to atom
-			ErrorType = todo,
-			{error, ErrorType};
-		_ -> throw(invalid_jsonrpc_response) %% both error and result
+			%ErrorType = internal_error,
+			ErrorMessage = proplists:get_value(<<"message">>, ErrorProplist, undefined),
+			ErrorData = proplists:get_value(<<"data">>, ErrorProplist, ErrorMessage),
+			{error, {server_error, ErrorData}};
+		_ ->
+			%% both error and result
+			{error, {server_error, <<"Invalid JSON-RPC 2.0 response">>}}
 	end,
 	{Id, Reply}.
 

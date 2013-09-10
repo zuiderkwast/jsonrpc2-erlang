@@ -1,7 +1,11 @@
 JSON-RPC 2.0 for Erlang
 =======================
 
-This is a JSON-RPC 2.0 request handler.
+Transport agnostic library for JSON-RPC 2.0 servers and clients.
+
+This page contains the manual for the server part, the `jsonrpc2` module. The client part has a
+separate module `jsonrpc2_client`. Client docs are yet to be written. For documentation on the
+client library, see the source code: [jsonrpc2_client.erl](src/jsonrpc2_client.erl).
 
 Features
 --------

@@ -19,6 +19,7 @@
 -type id() :: number() | null.
 -type errortype() :: parse_error | method_not_found | invalid_params |
                      internal_error | server_error.
+-type error() :: errortype() | {errortype(), json()}.
 -type request() :: {method(), params(), id() | undefined} | invalid_request.
 -type response() :: {reply, json()} | noreply.
 
@@ -26,7 +27,7 @@
 -type mapfun() :: fun((fun((A) -> B), [A]) -> [B]). % should be the same as lists:map/2
 
 -export_type([json/0, method/0, params/0, id/0, handlerfun/0, mapfun/0,
-              response/0, errortype/0]).
+              response/0, errortype/0, error/0]).
 
 %% @doc Handles a raw JSON-RPC request, using the supplied JSON decode and
 %% encode functions.
