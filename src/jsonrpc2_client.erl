@@ -44,11 +44,17 @@ batch_call(MethodsAndParams, TransportFun, JsonDecode, JsonEncode, FirstId) ->
 	MethodParamsIds = enumerate_call_tuples(MethodsAndParams, FirstId),
 	JsonReq = create_request(MethodParamsIds),
 	BinReq = JsonEncode(JsonReq),
-	BinResp = TransportFun(BinReq),
-	JsonResp = JsonDecode(BinResp),
-	RepliesById = parse_response(JsonResp),
-	LastId = FirstId + length(MethodsAndParams) - 1,
-	denumerate_replies(RepliesById, FirstId, LastId).
+	try TransportFun(BinReq) of
+		BinResp ->
+			JsonResp = JsonDecode(BinResp),
+			RepliesById = parse_response(JsonResp),
+			LastId = FirstId + length(MethodsAndParams) - 1,
+			denumerate_replies(RepliesById, FirstId, LastId)
+	catch throw:{transport_error, ErrorData} when is_binary(ErrorData) ->
+		%% Failure in transport function. Repeat the error data for each request to
+		%% simulate a batch response.
+		lists:duplicate(length(MethodsAndParams), {error, {server_error, ErrorData}})
+	end.
 
 %%----------
 %% Internal
