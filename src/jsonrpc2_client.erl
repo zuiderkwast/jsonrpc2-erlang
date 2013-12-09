@@ -44,13 +44,29 @@ batch_call(MethodsAndParams, TransportFun, JsonDecode, JsonEncode, FirstId) ->
 	MethodParamsIds = enumerate_call_tuples(MethodsAndParams, FirstId),
 	JsonReq = create_request(MethodParamsIds),
 	BinReq = JsonEncode(JsonReq),
-	try TransportFun(BinReq) of
-		BinResp ->
-			JsonResp = JsonDecode(BinResp),
-			RepliesById = parse_response(JsonResp),
-			LastId = FirstId + length(MethodsAndParams) - 1,
-			denumerate_replies(RepliesById, FirstId, LastId)
-	catch throw:{transport_error, ErrorData} when is_binary(ErrorData) ->
+	try
+		%% The transport fun can fail gracefully by throwing {transport_error, binary()}
+		BinResp = try TransportFun(BinReq)
+		catch throw:{transport_error, TransportError} when is_binary(TransportError) ->
+			throw({jsonrpc2_client, TransportError})
+		end,
+
+		%% JsonDecode can fail (any kind of error)
+		JsonResp = try JsonDecode(BinResp)
+		catch _:_ -> throw({jsonrpc2_client, invalid_json})
+		end,
+
+		%% parse_response can fail by throwing invalid_jsonrpc_response
+		RepliesById = try parse_response(JsonResp)
+		catch throw:invalid_jsonrpc_response ->
+			throw({jsonrpc2_client, invalid_jsonrpc_response})
+		end,
+
+		%% Decompose the replies into a list in the same order as MethodsAndParams.
+		LastId = FirstId + length(MethodsAndParams) - 1,
+		denumerate_replies(RepliesById, FirstId, LastId)
+
+	catch throw:{jsonrpc2_client, ErrorData} ->
 		%% Failure in transport function. Repeat the error data for each request to
 		%% simulate a batch response.
 		lists:duplicate(length(MethodsAndParams), {error, {server_error, ErrorData}})
@@ -130,5 +146,21 @@ denumerate_replies_test() ->
 	LastId = 5 = FirstId + length(Input) - 1,
 	Expect = [foo, bar, baz],
 	Expect = denumerate_replies(Input, FirstId, LastId).
+
+transport_error_test() ->
+	TransportFun = fun (_) -> throw({transport_error, <<"404 or whatever">>}) end,
+	JsonEncode = fun (_) -> <<"foo">> end,
+	JsonDecode = fun (_) -> [] end,
+	MethodsAndParams = [{<<"foo">>, []}],
+	Expect = [{error, {server_error, <<"404 or whatever">>}}],
+	?assertEqual(Expect, batch_call(MethodsAndParams, TransportFun, JsonDecode, JsonEncode, 1)).
+
+transport_return_invalid_json_test() ->
+	TransportFun = fun (_) -> <<"some non-JSON junk">> end,
+	JsonEncode = fun (_) -> <<"{\"foo\":\"bar\"}">> end,
+	JsonDecode = fun (_) -> throw(invalid_json) end,
+	MethodsAndParams = [{<<"foo">>, []}],
+	Expect = [{error, {server_error, invalid_json}}],
+	?assertEqual(Expect, batch_call(MethodsAndParams, TransportFun, JsonDecode, JsonEncode, 1)).
 
 -endif.
