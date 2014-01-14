@@ -98,7 +98,7 @@ parse_single_response({Response}) ->
 			Code = proplists:get_value(<<"code">>, ErrorProplist, -32000),
 			ErrorMessage = proplists:get_value(<<"message">>, ErrorProplist, undefined),
 			ErrorData = proplists:get_value(<<"data">>, ErrorProplist, ErrorMessage),
-			{error, {code_to_error(Code), ErrorData}};
+			{error, {Code, ErrorMessage, ErrorData}};
 		_ ->
 			%% both error and result
 			{error, {server_error, <<"Invalid JSON-RPC 2.0 response">>}}
@@ -128,12 +128,6 @@ denumerate_replies(ReplyDict, FirstId, LastId, Acc) when FirstId =< LastId ->
 	denumerate_replies(ReplyDict, FirstId + 1, LastId, Acc1);
 denumerate_replies(_, _, _, Acc) ->
 	lists:reverse(Acc).
-
-code_to_error(-32600) -> invalid_request;
-code_to_error(-32601) -> method_not_found;
-code_to_error(-32602) -> invalid_params;
-code_to_error(-32603) -> internal_error;
-code_to_error(-32000) -> server_error.
 
 %%------------
 %% Unit tests

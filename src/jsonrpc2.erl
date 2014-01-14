@@ -104,8 +104,8 @@ parseerror() ->
 make_result_response(_Result, undefined) ->
     noreply;
 make_result_response(Result, Id) ->
-    {reply, {[{<<"jsonrpc">>, <<"2.0">>}, 
-              {<<"result">>, Result}, 
+    {reply, {[{<<"jsonrpc">>, <<"2.0">>},
+              {<<"result">>, Result},
               {<<"id">>, Id}]}}.
 
 -spec make_error_response(errortype(), id() | undefined) -> response().
@@ -185,6 +185,8 @@ dispatch({Method, Params, Id}, HandlerFun) ->
         throw:{server_error, Data, Code} when Code =< -32000, Code >= -32099 ->
             %% "Reserved for implementation-defined server-errors."
             make_error_response(Code, <<"Server error.">>, Data, Id);
+        {Code, ErrorData, ErrorMessage} ->
+            {reply, make_error(Code, ErrorMessage, ErrorData, Id)};
         Class:Error ->
             error_logger:error_msg(
             	"Error in JSON-RPC handler for method ~s with params ~p: ~p:~p",
