@@ -185,7 +185,7 @@ dispatch({Method, Params, Id}, HandlerFun) ->
         throw:{server_error, Data, Code} when Code =< -32000, Code >= -32099 ->
             %% "Reserved for implementation-defined server-errors."
             make_error_response(Code, <<"Server error.">>, Data, Id);
-        {Code, ErrorData, ErrorMessage} ->
+        {Code, ErrorMessage, ErrorData} ->
             {reply, make_error(Code, ErrorMessage, ErrorData, Id)};
         Class:Error ->
             error_logger:error_msg(
