@@ -28,15 +28,17 @@ create_request({Method, Params, Id}) ->
 create_request(Reqs) when is_list(Reqs) ->
 	lists:map(fun create_request/1, Reqs).
 
-%% @doc Parses a structured response and returns a list of pairs, with id and the retuned value.
-%%      Throws invalid_jsonrpc_response.
+%% @doc Parses a structured response (already json-decoded) and returns a list of pairs, with id
+%% and a tuple {ok, Reply} or {error, Error}.
+%% TODO: Define the structure of Error.
 -spec parse_response(jsonrpc2:json()) -> [{jsonrpc2:id(), response()}].
 parse_response({_} = Response) ->
-	parse_single_response(Response);
+	[parse_single_response(Response)];
 parse_response(BatchResponse) when is_list(BatchResponse) ->
 	lists:map(fun parse_single_response/1, BatchResponse).
 
-%% @doc Calls multiple methods as a batch call and returns the results in the same order
+%% @doc Calls multiple methods as a batch call and returns the results in the same order.
+%% TODO: Sort out what this function returns in the different error cases.
 -spec batch_call([{jsonrpc2:method(), jsonrpc2:params()}], transportfun(),
                  json_decode(), json_encode(), FirstId :: integer()) ->
 	[response()].
@@ -92,13 +94,15 @@ parse_single_response({Response}) ->
 		{_, undefined} ->
 			{ok, Result};
 		{undefined, {ErrorProplist}} ->
-			%% extract the error code and convert to atom
-			%ErrorType = internal_error,
-
 			Code = proplists:get_value(<<"code">>, ErrorProplist, -32000),
-			ErrorMessage = proplists:get_value(<<"message">>, ErrorProplist, undefined),
-			ErrorData = proplists:get_value(<<"data">>, ErrorProplist, ErrorMessage),
-			{error, {jsonrpc2, Code, ErrorMessage, ErrorData}};
+			Message = proplists:get_value(<<"message">>, ErrorProplist, <<"Unknown error">>),
+			ErrorTuple = case proplists:get_value(<<"data">>, ErrorProplist) of
+			    undefined ->
+					{jsonrpc2, Code, Message};
+			    Data ->
+					{jsonrpc2, Code, Message, Data}
+			end,
+			{error, ErrorTuple};
 		_ ->
 			%% both error and result
 			{error, {server_error, <<"Invalid JSON-RPC 2.0 response">>}}
