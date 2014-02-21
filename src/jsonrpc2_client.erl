@@ -28,15 +28,17 @@ create_request({Method, Params, Id}) ->
 create_request(Reqs) when is_list(Reqs) ->
 	lists:map(fun create_request/1, Reqs).
 
-%% @doc Parses a structured response and returns a list of pairs, with id and the retuned value.
-%%      Throws invalid_jsonrpc_response.
+%% @doc Parses a structured response (already json-decoded) and returns a list of pairs, with id
+%% and a tuple {ok, Reply} or {error, Error}.
+%% TODO: Define the structure of Error.
 -spec parse_response(jsonrpc2:json()) -> [{jsonrpc2:id(), response()}].
 parse_response({_} = Response) ->
-	parse_single_response(Response);
+	[parse_single_response(Response)];
 parse_response(BatchResponse) when is_list(BatchResponse) ->
 	lists:map(fun parse_single_response/1, BatchResponse).
 
-%% @doc Calls multiple methods as a batch call and returns the results in the same order
+%% @doc Calls multiple methods as a batch call and returns the results in the same order.
+%% TODO: Sort out what this function returns in the different error cases.
 -spec batch_call([{jsonrpc2:method(), jsonrpc2:params()}], transportfun(),
                  json_decode(), json_encode(), FirstId :: integer()) ->
 	[response()].
@@ -44,11 +46,33 @@ batch_call(MethodsAndParams, TransportFun, JsonDecode, JsonEncode, FirstId) ->
 	MethodParamsIds = enumerate_call_tuples(MethodsAndParams, FirstId),
 	JsonReq = create_request(MethodParamsIds),
 	BinReq = JsonEncode(JsonReq),
-	BinResp = TransportFun(BinReq),
-	JsonResp = JsonDecode(BinResp),
-	RepliesById = parse_response(JsonResp),
-	LastId = FirstId + length(MethodsAndParams) - 1,
-	denumerate_replies(RepliesById, FirstId, LastId).
+	try
+		%% The transport fun can fail gracefully by throwing {transport_error, binary()}
+		BinResp = try TransportFun(BinReq)
+		catch throw:{transport_error, TransportError} when is_binary(TransportError) ->
+			throw({jsonrpc2_client, TransportError})
+		end,
+
+		%% JsonDecode can fail (any kind of error)
+		JsonResp = try JsonDecode(BinResp)
+		catch _:_ -> throw({jsonrpc2_client, invalid_json})
+		end,
+
+		%% parse_response can fail by throwing invalid_jsonrpc_response
+		RepliesById = try parse_response(JsonResp)
+		catch throw:invalid_jsonrpc_response ->
+			throw({jsonrpc2_client, invalid_jsonrpc_response})
+		end,
+
+		%% Decompose the replies into a list in the same order as MethodsAndParams.
+		LastId = FirstId + length(MethodsAndParams) - 1,
+		denumerate_replies(RepliesById, FirstId, LastId)
+
+	catch throw:{jsonrpc2_client, ErrorData} ->
+		%% Failure in transport function. Repeat the error data for each request to
+		%% simulate a batch response.
+		lists:duplicate(length(MethodsAndParams), {error, {server_error, ErrorData}})
+	end.
 
 %%----------
 %% Internal
@@ -70,11 +94,15 @@ parse_single_response({Response}) ->
 		{_, undefined} ->
 			{ok, Result};
 		{undefined, {ErrorProplist}} ->
-			%% extract the error code and convert to atom
-			%ErrorType = internal_error,
-			ErrorMessage = proplists:get_value(<<"message">>, ErrorProplist, undefined),
-			ErrorData = proplists:get_value(<<"data">>, ErrorProplist, ErrorMessage),
-			{error, {server_error, ErrorData}};
+			Code = proplists:get_value(<<"code">>, ErrorProplist, -32000),
+			Message = proplists:get_value(<<"message">>, ErrorProplist, <<"Unknown error">>),
+			ErrorTuple = case proplists:get_value(<<"data">>, ErrorProplist) of
+			    undefined ->
+					{jsonrpc2, Code, Message};
+			    Data ->
+					{jsonrpc2, Code, Message, Data}
+			end,
+			{error, ErrorTuple};
 		_ ->
 			%% both error and result
 			{error, {server_error, <<"Invalid JSON-RPC 2.0 response">>}}
@@ -124,5 +152,21 @@ denumerate_replies_test() ->
 	LastId = 5 = FirstId + length(Input) - 1,
 	Expect = [foo, bar, baz],
 	Expect = denumerate_replies(Input, FirstId, LastId).
+
+transport_error_test() ->
+	TransportFun = fun (_) -> throw({transport_error, <<"404 or whatever">>}) end,
+	JsonEncode = fun (_) -> <<"foo">> end,
+	JsonDecode = fun (_) -> [] end,
+	MethodsAndParams = [{<<"foo">>, []}],
+	Expect = [{error, {server_error, <<"404 or whatever">>}}],
+	?assertEqual(Expect, batch_call(MethodsAndParams, TransportFun, JsonDecode, JsonEncode, 1)).
+
+transport_return_invalid_json_test() ->
+	TransportFun = fun (_) -> <<"some non-JSON junk">> end,
+	JsonEncode = fun (_) -> <<"{\"foo\":\"bar\"}">> end,
+	JsonDecode = fun (_) -> throw(invalid_json) end,
+	MethodsAndParams = [{<<"foo">>, []}],
+	Expect = [{error, {server_error, invalid_json}}],
+	?assertEqual(Expect, batch_call(MethodsAndParams, TransportFun, JsonDecode, JsonEncode, 1)).
 
 -endif.

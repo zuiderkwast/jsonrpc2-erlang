@@ -19,7 +19,8 @@
 -type id() :: number() | null.
 -type errortype() :: parse_error | method_not_found | invalid_params |
                      internal_error | server_error.
--type error() :: errortype() | {errortype(), json()}.
+-type error() :: errortype() | {errortype(), json()} | {jsonrpc2, integer(), binary()} |
+                 {jsonrpc2, integer(), binary(), json()}.
 -type request() :: {method(), params(), id() | undefined} | invalid_request.
 -type response() :: {reply, json()} | noreply.
 
@@ -61,7 +62,7 @@ handle(Req, HandlerFun, MapFun, JsonDecode, JsonEncode)
             catch _:_ ->
                 error_logger:error_msg("Failed encoding reply as JSON: ~p",
                                        [Reply]),
-                {reply, Error} = make_error_response(internal_error, null),
+                {reply, Error} = make_standard_error_response(internal_error, null),
                 {reply, JsonEncode(Error)}
             end
     end.
@@ -104,31 +105,35 @@ parseerror() ->
 make_result_response(_Result, undefined) ->
     noreply;
 make_result_response(Result, Id) ->
-    {reply, {[{<<"jsonrpc">>, <<"2.0">>}, 
-              {<<"result">>, Result}, 
+    {reply, {[{<<"jsonrpc">>, <<"2.0">>},
+              {<<"result">>, Result},
               {<<"id">>, Id}]}}.
 
--spec make_error_response(errortype(), id() | undefined) -> response().
-make_error_response(_ErrorType, undefined) ->
-    noreply;
-make_error_response(ErrorType, Id) ->
+-spec make_standard_error_response(errortype(), id() | undefined) -> response().
+make_standard_error_response(ErrorType, Id) ->
     {Code, Msg} = error_code_and_message(ErrorType),
-    {reply, make_error(Code, Msg, Id)}.
+    make_error_response(Code, Msg, Id).
 
--spec make_error_response(errortype(), json(), id() | undefined) -> response().
-make_error_response(_ErrorType, _Data, undefined) ->
-    noreply;
-make_error_response(ErrorType, Data, Id) ->
+-spec make_standard_error_response(errortype(), json(), id() | undefined) -> response().
+make_standard_error_response(ErrorType, Data, Id) ->
     {Code, Msg} = error_code_and_message(ErrorType),
-    {reply, make_error(Code, Msg, Data, Id)}.
+    make_error_response(Code, Msg, Data, Id).
 
--spec make_error_response(errortype(), json(), integer(), id() | undefined) -> response().
-make_error_response(_ErrorType, _Data, _Code, undefined) ->
+%% @doc Custom error, with data
+-spec make_error_response(integer(), binary(), json(), id() | undefined) -> response().
+make_error_response(_Code, _Message, _Data, undefined) ->
     noreply;
-make_error_response(ErrorType, Data, Code, Id) ->
-    {_, Msg} = error_code_and_message(ErrorType),
-    {reply, make_error(Code, Msg, Data, Id)}.
+make_error_response(Code, Message, Data, Id) ->
+    {reply, make_error(Code, Message, Data, Id)}.
 
+%% @doc Custom error, without data
+-spec make_error_response(integer(), binary(), id() | undefined) -> response().
+make_error_response(_Code, _Message, undefined) ->
+    noreply;
+make_error_response(Code, Message, Id) ->
+    {reply, make_error(Code, Message, Id)}.
+
+%% @doc Make json-rpc error response, with data
 -spec make_error(integer(), binary(), json(), id()) -> json().
 make_error(Code, Msg, Data, Id) ->
     {[{<<"jsonrpc">>, <<"2.0">>},
@@ -137,6 +142,7 @@ make_error(Code, Msg, Data, Id) ->
                       {<<"data">>, Data}]}},
       {<<"id">>, Id}]}.
 
+%% @doc Make json-rpc error response, without data
 -spec make_error(integer(), binary(), id()) -> json().
 make_error(Code, Msg, Id) ->
     {[{<<"jsonrpc">>, <<"2.0">>},
@@ -178,21 +184,26 @@ dispatch({Method, Params, Id}, HandlerFun) ->
     catch
         throw:E when E == method_not_found; E == invalid_params;
                      E == internal_error; E == server_error ->
-            make_error_response(E, Id);
+            make_standard_error_response(E, Id);
         throw:{E, Data} when E == method_not_found; E == invalid_params;
                              E == internal_error; E == server_error ->
-            make_error_response(E, Data, Id);
-        throw:{server_error, Data, Code} when Code =< -32000, Code >= -32099 ->
-            %% "Reserved for implementation-defined server-errors."
-            make_error_response(Code, <<"Server error.">>, Data, Id);
+            make_standard_error_response(E, Data, Id);
+        throw:{jsonrpc2, Code, Message} when is_integer(Code), is_binary(Message) ->
+            %% Custom error, without data
+            %% -32000 to -32099	Server error Reserved for implementation-defined server-errors.
+            %% The remainder of the space is available for application defined errors.
+            make_error_response(Code, Message, Id);
+        throw:{jsonrpc2, Code, Message, Data} when is_integer(Code), is_binary(Message) ->
+            %% Custom error, with data
+            make_error_response(Code, Message, Data, Id);
         Class:Error ->
             error_logger:error_msg(
-            	"Error in JSON-RPC handler for method ~s with params ~p: ~p:~p",
+                "Error in JSON-RPC handler for method ~s with params ~p: ~p:~p",
                 [Method, Params, Class, Error]),
-            make_error_response(internal_error, Id)
+            make_standard_error_response(internal_error, Id)
     end;
 dispatch(_, _HandlerFun) ->
-    make_error_response(invalid_request, null).
+    make_standard_error_response(invalid_request, null).
 
 %% @doc Returns JSON-RPC error code and error message
 error_code_and_message(invalid_request)  -> {-32600, <<"Invalid Request.">>};
