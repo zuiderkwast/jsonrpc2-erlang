@@ -1,6 +1,6 @@
 {application, jsonrpc2, [
   {description, "JSON-RPC 2.0 request handler"},
-  {vsn, "0.9.1"},
+  {vsn, "0.9.2"},
   {applications, [
     kernel,
     stdlib

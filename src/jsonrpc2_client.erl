@@ -98,7 +98,7 @@ parse_single_response({Response}) ->
 			Code = proplists:get_value(<<"code">>, ErrorProplist, -32000),
 			ErrorMessage = proplists:get_value(<<"message">>, ErrorProplist, undefined),
 			ErrorData = proplists:get_value(<<"data">>, ErrorProplist, ErrorMessage),
-			{error, {Code, ErrorMessage, ErrorData}};
+			{error, {jsonrpc2, Code, ErrorMessage, ErrorData}};
 		_ ->
 			%% both error and result
 			{error, {server_error, <<"Invalid JSON-RPC 2.0 response">>}}

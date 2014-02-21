@@ -111,17 +111,20 @@ To produce an error response from the handler function, you may throw one of
 the exceptions below. They will be caught and turned into a corresponding
 JSON-RPC error response.
 
-  * `throw:method_not_found` is reported as "Method not found" (-32601)
-  * `throw:invalid_params` is reported as "Invalid params" (-32602)
-  * `throw:internal_error` is reported as "Internal error" (-32603)
-  * `throw:server_error` is reported as "Server error" (-32000)
+  * `throw(method_not_found)` is reported as "Method not found" (-32601)
+  * `throw(invalid_params)` is reported as "Invalid params" (-32602)
+  * `throw(internal_error)` is reported as "Internal error" (-32603)
+  * `throw(server_error)` is reported as "Server error" (-32000)
 
 If you also want to include `data` in the JSON-RPC error response, throw a pair
 with the error type and the data, such as `{internal_error, Data}`.
 
-For *server errors*, it is also possible to set a custom error code by throwing
-a triple: `{server_error, Data, Code}`. The Code must be in the range from
--32000 to -32099.
+For your own *application-defined errors*, it is possible to set a custom error
+code by throwing a tuple with the atom `jsonrpc2`, an integer error code, a
+binary message and optional data.
+
+  * `throw({jsonrpc2, Code, Message)`
+  * `throw({jsonrpc2, Code, Message, Data})`
 
 If any other exception is thrown or an error occurs in the handler, this is
 caught, an error message is logged (using the standard error logger
@@ -140,7 +143,7 @@ my_handler(<<"Foo">>, [X, Y]) when is_integer(X), is_integer(Y) ->
 my_handler(<<"Foo">>, _SomeOtherParams) ->
     throw(invalid_params);
 my_handler(<<"Logout">>, [Username]) ->
-    throw({server_error, {[{<<"reason">>, <<"Not logged in">>}]}});
+    throw({jsonrpc2, 123, <<"Not logged in">>});
 my_handler(_SomeOtherMethod, _) ->
     throw(method_not_found).
 ```
