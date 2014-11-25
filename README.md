@@ -163,3 +163,33 @@ Links
 * rjsonrpc2, a "restricted" implementation of JSON-RPC 2.0, https://github.com/imprest/rjsonrpc2
 * ejrpc2, another JSON-RPC 2 library, https://github.com/jvliwanag/ejrpc2
 
+License
+-------
+
+```
+Copyright 2013-2014 Viktor Söderqvist
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+**Author's note:**
+The Apache 2.0 is a very permissive license just like MIT and BSD, but as
+FSF notes, it also includes "certain patent termination and indemnification
+provisions", which is a good thing. We (the authouts) cannot come to you
+(the users) to claim any patents we might have on something in the code.
+
+If you have any compatibility issues with this license, keep in mind that if
+you're using this as an external dependency (e.g. with Rebar or Erlang.mk)
+you're not actually distributing this dependency anyway. Even if you do
+distribute dependencies, they are not actually linked together until they
+are loaded into the BEAM unless to run it unless you compile it with HiPE.
