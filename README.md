@@ -184,12 +184,12 @@ limitations under the License.
 
 **Author's note:**
 The Apache 2.0 is a very permissive license just like MIT and BSD, but as
-FSF notes, it also includes "certain patent termination and indemnification
-provisions", which is a good thing. We (the authouts) cannot come to you
+FSF notes, it includes "certain patent termination and indemnification
+provisions", which is a good thing. We (the authours) cannot come to you
 (the users) to claim any patents we might have on something in the code.
 
 If you have any compatibility issues with this license, keep in mind that if
 you're using this as an external dependency (e.g. with Rebar or Erlang.mk)
 you're not actually distributing this dependency anyway. Even if you do
 distribute dependencies, they are not actually linked together until they
-are loaded into the BEAM unless to run it unless you compile it with HiPE.
+are loaded and run in the BEAM unless you compile the release with HiPE.
