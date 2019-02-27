@@ -210,8 +210,8 @@ dispatch({Method, Params, Id}, HandlerFun) ->
             make_error_response(Code, Message, Data, Id);
         Class:Error ->
             error_logger:error_msg(
-                "Error in JSON-RPC handler for method ~s with params ~p: ~p:~p from ~p",
-                [Method, Params, Class, Error, erlang:get_stacktrace()]),
+                "Error in JSON-RPC handler for method ~s with params ~p (id: ~p): ~p:~p from ~p",
+                [Method, Params, Id, Class, Error, erlang:get_stacktrace()]),
             make_standard_error_response(internal_error, Id)
     end;
 dispatch(_, _HandlerFun) ->
